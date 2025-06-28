@@ -1,50 +1,114 @@
 import requests
-import logging
+import time
 from datetime import datetime
+import logging
+import socket
 
-# CONFIGURACIÓN
+# ===== CONFIGURACIÓN =====
 TELEGRAM_API_TOKEN = "7779030184:AAFUrTNBmC_KeJ27nfVx_Cg-aUkOylMct64"
 TELEGRAM_CHAT_ID = "7925857119"
 TARGET_URL = "https://spotlight-trigger-monitors-professionals.trycloudflare.com/"
-LOG_FILE = "monitor.log"
+CHECK_INTERVAL = 15  # segundos (para pruebas rápidas)
+LOG_FILE = "internet_monitor.log"
 
-# Configuración de logging
+# ===== LOGGING =====
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s"
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler(LOG_FILE),
+        logging.StreamHandler()
+    ]
 )
 
-def send_telegram_notification(message):
+# ===== FUNCIONES =====
+def get_network_info():
     try:
-        url = f"https://api.telegram.org/bot{TELEGRAM_API_TOKEN}/sendMessage"
-        data = {
-            "chat_id": TELEGRAM_CHAT_ID,
-            "text": message,
-            "parse_mode": "HTML"
-        }
-        r = requests.post(url, json=data, timeout=10)
-        return r.ok
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip_local = s.getsockname()[0]
+        s.close()
+        return ip_local
     except Exception as e:
-        logging.error(f"Error al enviar notificación: {e}")
+        logging.error(f"Error al obtener IP local: {e}")
+        return "Desconocida"
+
+def check_connection():
+    try:
+        response = requests.get(TARGET_URL, timeout=10)
+        return response.status_code == 200
+    except Exception as e:
+        logging.warning(f"Error al conectar: {e}")
         return False
 
-def monitor():
-    try:
-        r = requests.get(TARGET_URL, timeout=10)
-        current_status = r.status_code == 200
-    except requests.RequestException:
-        current_status = False
+def send_telegram_notification(message):
+    endpoints = [
+        "https://api.telegram.org",
+        "https://api1.telegram.org",
+        "https://api2.telegram.org"
+    ]
+    for endpoint in endpoints:
+        try:
+            response = requests.post(
+                f"{endpoint}/bot{TELEGRAM_API_TOKEN}/sendMessage",
+                json={
+                    'chat_id': TELEGRAM_CHAT_ID,
+                    'text': message,
+                    'parse_mode': 'HTML'
+                },
+                timeout=10
+            )
+            if response.json().get('ok'):
+                return True
+        except Exception as e:
+            logging.warning(f"Error con endpoint {endpoint}: {str(e)[:100]}")
+    return False
 
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+# ===== LÓGICA PRINCIPAL =====
+def main():
+    ip_local = get_network_info()
+    last_status = None
 
-    if not current_status:
-        msg = (
-            f"❌ <b>Web caída</b>\n"
-            f"🕒 {now}\n"
-            f"🔗 {TARGET_URL}"
-        )
-        send_telegram_notification(msg)
-        logging.warning(msg)
+    start_msg = (
+        f"🟢 <b>Monitor iniciado</b>\n"
+        f"🔗 URL: {TARGET_URL}\n"
+        f"📡 IP Local: <code>{ip_local}</code>\n"
+        f"⏱ Frecuencia: {CHECK_INTERVAL} segundos"
+    )
+    send_telegram_notification(start_msg)
+    logging.info(start_msg)
+
+    while True:
+        current_status = check_connection()
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        if last_status is not None and current_status != last_status:
+            if not current_status:
+                msg = (
+                    f"❌ <b>Web caída</b>\n"
+                    f"🕒 Hora: {now}\n"
+                    f"🔗 {TARGET_URL}\n"
+                    f"📍 IP Local: <code>{ip_local}</code>"
+                )
+            else:
+                msg = (
+                    f"✅ <b>Web recuperada</b>\n"
+                    f"🕒 Hora: {now}\n"
+                    f"🔗 {TARGET_URL}"
+                )
+            send_telegram_notification(msg)
+            logging.info(msg)
+
+        last_status = current_status
+        time.sleep(CHECK_INTERVAL)
 
 if __name__ == "__main__":
-    monitor()
+    try:
+        main()
+    except KeyboardInterrupt:
+        logging.info("🔴 Monitor detenido manualmente")
+    except Exception as e:
+        error_msg = f"⚠️ Error Crítico: {str(e)[:200]}"
+        send_telegram_notification(error_msg)
+        logging.critical(error_msg)
+
