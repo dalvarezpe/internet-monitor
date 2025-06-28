@@ -8,7 +8,7 @@ import socket
 TELEGRAM_API_TOKEN = "7779030184:AAFUrTNBmC_KeJ27nfVx_Cg-aUkOylMct64"
 TELEGRAM_CHAT_ID = "7925857119"
 TARGET_URL = "https://spotlight-trigger-monitors-professionals.trycloudflare.com/"
-CHECK_INTERVAL = 15  # segundos (para pruebas rápidas)
+CHECK_INTERVAL = 300  # segundos = 5 minutos
 LOG_FILE = "internet_monitor.log"
 
 # ===== LOGGING =====
@@ -73,7 +73,7 @@ def main():
         f"🟢 <b>Monitor iniciado</b>\n"
         f"🔗 URL: {TARGET_URL}\n"
         f"📡 IP Local: <code>{ip_local}</code>\n"
-        f"⏱ Frecuencia: {CHECK_INTERVAL} segundos"
+        f"⏱ Frecuencia: {CHECK_INTERVAL // 60} minutos"
     )
     send_telegram_notification(start_msg)
     logging.info(start_msg)
@@ -111,4 +111,5 @@ if __name__ == "__main__":
         error_msg = f"⚠️ Error Crítico: {str(e)[:200]}"
         send_telegram_notification(error_msg)
         logging.critical(error_msg)
+
 
